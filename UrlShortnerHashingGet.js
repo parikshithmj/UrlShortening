@@ -3,11 +3,12 @@ var app = express();
 var bodyParser = require('body-parser');
 app.use(express.static('public'));
 var redis = require('redis');
-var client = redis.createClient(6379, "52.35.55.113"); //creates a new client
+//Redis hosted on AWS.c
+//Create a Redis client
+var client = redis.createClient(6379, "52.35.55.113"); 
 var amqp = require('amqplib/callback_api');
 var MongoClient = require('mongodb').MongoClient;
 
-  
 var expandedUrl = undefined;
 var urlencodedParser = bodyParser.urlencoded({ extended: false })
 var mysql      = require('mysql');
@@ -16,14 +17,15 @@ client.on('connect', function() {
 });
 
 
+//Subscriber for RabbitMQ message queue
 amqp.connect('amqp://localhost', function(err, conn) {
   conn.createChannel(function(err, ch) {
-  var q = 'shortner';
-
-  ch.assertQueue(q, {durable: false});
+  var queue = 'shortner';
+  ch.assertQueue(queue, {durable: false});
   console.log(" [*] Waiting for messages in %s. To exit press CTRL+C", q);
-  ch.consume(q, function(msg) {
+  ch.consume(queue, function(msg) {
   var recvd = msg.content.toString();
+  //write to REDIS if the shortner message is recieved
     client.set(recvd.split(",")[0],recvd.split(",")[1]);
   console.log(" [x] Received %s", msg.content.toString()+" "+recvd.split(",")[0]+" "+recvd.split(",")[1]);
   }, {noAck: true});
@@ -41,10 +43,11 @@ connection.connect();
 
 function expand(shortUrl){
 console.log("lets check"+shortUrl);
+//Try fetching it in REDIS cache first.
 client.get(shortUrl, function(err, reply) {
     console.log("The expanded url is "+reply);
     expandedUrl = reply;
-
+  //if cache miss, fetch from the MYSQl db and update the cache
     if(reply==null){
       connection.query("SELECT originalurl from urlinfo where shorturl='"+shortUrl+"'", function(err, rows, fields) {
       if (!err && rows.length!=0){
@@ -97,23 +100,6 @@ function converToBase(val){
   return baseString.charAt(val);
 }
 
-function convertBaseToDecimal(baseStr){
-var len = baseStr.length;
-    var num=0;
-    var ch;
-for(var i=len-1;i>=0;i--){
-    ch = findIndexOfChar(baseStr.charAt(i))
-    num = num + ch * Math.pow(62,i);
- }
-    return num;
-}
- function findIndexOfChar(char){
- for(var i=0;i<62;i++)
-     if(char==baseString.charAt(i)){
-      return i;
-     }
-     return -1;
- }
 
  function validateUrl(url){
     var ind =url.lastIndexOf("/");
