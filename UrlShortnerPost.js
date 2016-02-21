@@ -10,6 +10,15 @@ var amqp = require('amqplib/callback_api');
 
 var urlencodedParser = bodyParser.urlencoded({ extended: false })
 var mysql      = require('mysql');
+
+var baseString = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+//Map of id to url
+var IdMap = {};
+//map of url to id
+var urlMap ={};
+
+//MySQL Connection (password removed)
+// DBname :urlshortener  
 var connection = mysql.createConnection({
   host     : 'localhost',
   user     : 'parikshithmj',
@@ -17,17 +26,21 @@ var connection = mysql.createConnection({
   database : 'urlshortener'
 });
 
+//establish connection to DB
 connection.connect();
 
+//main function to shorten the URL
 function shortner(url){
   if(url in urlMap)
     return urlMap[url];
+  //use crc32 for Hashing the URL  
   var id = crc.crc32(url)
 
 IdMap[id] = url;
 var tmpId = id;
 
 var tmp ="";
+//convert the hash to Base62 string
 while(tmpId >0){
   tmp = tmp + converToBase(tmpId%62);
   tmpId = tmpId/62;
@@ -38,8 +51,8 @@ while(tmpId >0){
 urlMap[url] = tmp;
 //TODO :Websitename
 var dataToPersisit = {websitename:'Default',originalurl:url,shorturl:tmp};
+//persist the Shortened URL along with the Original URL
 var query = connection.query('INSERT IGNORE INTO urlinfo SET ?',dataToPersisit, function(err, result) {
-
   if (!err)
     console.log("The data is stored to DB"+result);
   else{
@@ -48,26 +61,26 @@ var query = connection.query('INSERT IGNORE INTO urlinfo SET ?',dataToPersisit, 
   }
 });
 console.log(query.sql);
+//publish the Shortned URL to the subscribers in RabbitMQ
 amqp.connect('amqp://localhost', function(err, conn) {
   conn.createChannel(function(err, ch) {
-    var q = 'shortner';
-
-    ch.assertQueue(q, {durable: false});
-    ch.sendToQueue(q, new Buffer(tmp+","+url));
+    var queueName = 'shortner';
+    ch.assertQueue(queueName, {durable: false});
+    ch.sendToQueue(queueName, new Buffer(tmp+","+url));
     console.log(" [x] Sent "+tmp+","+url);
   });
 });
 return tmp
 }
 
-
+//utility function
 function convertHexToDecimal(hexNumber){
 	var decNumber=0;
 	console.log("len is"+hexNumber.length);
 	for(var i=0;i<hexNumber.length;i++){
 		console.log("going..."+i);
 		if(hexNumber.charAt(i)=='a'){
-     console.log("going...a"+decNumber);
+     console.log("Decimal Number"+decNumber);
      decNumber = decNumber +10*Math.pow(16,i);
    }
    else if(hexNumber.charAt(i)=='b'){
@@ -92,10 +105,10 @@ function convertHexToDecimal(hexNumber){
 }
 
 function converToBase(val){
-
   return baseString.charAt(val);
 }
 
+//util helper function
 function convertBaseToDecimal(baseStr){
   var len = baseStr.length;
   var num=0;
@@ -107,6 +120,7 @@ function convertBaseToDecimal(baseStr){
     //console.log("Converetd back"+num);
     return num;
   }
+  
   function findIndexOfChar(char){
    for(var i=0;i<62;i++)
      if(char==baseString.charAt(i)){
@@ -114,12 +128,8 @@ function convertBaseToDecimal(baseStr){
      }
      return -1;
    }
-   var baseString = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-//Map of id to url
-var IdMap = {};
-//map of url to id
-var urlMap ={};
-
+ 
+//HTTP POST method handler
 app.post('/shorten', urlencodedParser, function (req, res) {
 
    // Prepare output in JSON format
